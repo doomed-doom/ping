@@ -1,5 +1,22 @@
-use socket2::{Socket, Domain, Type, Protocol, SockAddr};
+use socket2::{Socket, Domain, Type, Protocol};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
+use clap::{Parser, value_parser, command};
+use std::thread;
+use std::time::Duration;
+
+#[derive(Parser)]
+#[command(version, about, long_about = None)]
+struct CliArgs {
+    /// IP-адрес назначения.
+    #[arg(value_parser = value_parser!(Ipv4Addr))]
+    ip: Ipv4Addr,
+    /// Кол-во пакетов.
+    #[arg(short, long, default_value = "0")]
+    count: i16,
+    /// Задержка (в сек.)
+    #[arg(short, long)]
+    duration: Option<f64>,
+}
 
 struct IcmpPacket {
     icmp_type: u8,
@@ -40,13 +57,21 @@ fn create_packet(packet_type: u8, packet_code: u8, packet_checksum: u16, packet_
 }
 
 fn main() {
-    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4)).unwrap();
-    let connect_addr: SockAddr = SockAddr::from(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127, 0, 0, 1)), 9000));
+    let args = CliArgs::parse();
 
-    socket.connect(&connect_addr).unwrap();
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4)).unwrap();
+
+    let input_addr: Ipv4Addr = args.ip;
+    let connect_addr = SocketAddr::new(IpAddr::from(input_addr), 8080);
+
+    socket.connect(&connect_addr.into()).unwrap();
     println!("Подключено к {:?}", connect_addr);
 
-    let packet: Vec<u8> = create_packet(8, 0, 0, 1, 1, vec![0]);
-    socket.send(&packet).unwrap();
-    println!("Отправлен пакет! Данные {:?}", packet)
+    loop {
+        let packet: Vec<u8> = create_packet(8, 0, 0, 1, 1, vec![0]);
+        socket.send(&packet).unwrap();
+
+        println!("Отправлен пакет! Данные {:?}", packet);
+        thread::sleep(Duration::from_secs_f64(1.0))
+    }
 }

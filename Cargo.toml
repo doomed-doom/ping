@@ -2,6 +2,8 @@
 name = "ping"
 version = "0.1.0"
 edition = "2024"
+description = "Реализация CLI-ping на Rust."
 
 [dependencies]
+clap = { version = "4.5.45", features = ["derive"] }
 socket2 = { version = "0.6.0", features = ["all"] }
