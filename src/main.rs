@@ -11,8 +11,8 @@ struct CliArgs {
     #[arg(value_parser = value_parser!(Ipv4Addr))]
     ip: Ipv4Addr,
     /// Кол-во пакетов.
-    #[arg(short, long, default_value = "0")]
-    count: i16,
+    #[arg(short, long, default_value = "0", value_parser = value_parser!(usize))]
+    count: usize,
     /// Задержка (в сек.)
     #[arg(short, long)]
     duration: Option<f64>,
@@ -58,20 +58,27 @@ fn create_packet(packet_type: u8, packet_code: u8, packet_checksum: u16, packet_
 
 fn main() {
     let args = CliArgs::parse();
+    let input_addr: Ipv4Addr = args.ip;
+    let count: usize = args.count;
+    let dur: Duration = Duration::from_secs_f64(args.duration.unwrap());
 
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4)).unwrap();
-
-    let input_addr: Ipv4Addr = args.ip;
     let connect_addr = SocketAddr::new(IpAddr::from(input_addr), 8080);
 
     socket.connect(&connect_addr.into()).unwrap();
     println!("Подключено к {:?}", connect_addr);
 
-    loop {
+    let mut send = 0;
+
+    while count == 0 || send < count {
         let packet: Vec<u8> = create_packet(8, 0, 0, 1, 1, vec![0]);
         socket.send(&packet).unwrap();
 
         println!("Отправлен пакет! Данные {:?}", packet);
-        thread::sleep(Duration::from_secs_f64(1.0))
+        send += 1;
+
+        if send != count {
+            thread::sleep(dur);
+        }
     }
 }
