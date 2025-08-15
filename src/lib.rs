@@ -1,6 +1,7 @@
 use std::time::{Duration, Instant};
 use std::net::Ipv4Addr;
 
+#[allow(dead_code)]
 pub struct PingStats {
     host: Ipv4Addr,
     count: u16,

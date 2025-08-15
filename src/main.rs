@@ -3,6 +3,7 @@ use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use clap::{Parser, value_parser, command};
 use std::thread;
 use std::time::Duration;
+use std::mem::MaybeUninit;
 
 #[derive(Parser)]
 #[command(version, about, long_about = None)]
@@ -63,12 +64,15 @@ fn main() {
     let dur: Duration = Duration::from_secs_f64(args.duration.unwrap());
 
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4)).unwrap();
-    let connect_addr = SocketAddr::new(IpAddr::from(input_addr), 8080);
+    let connect_addr = SocketAddr::new(IpAddr::from(input_addr), 0);
 
     socket.connect(&connect_addr.into()).unwrap();
     println!("Подключено к {:?}", connect_addr);
 
+    let mut buf: [MaybeUninit<u8>; 1500] = unsafe { MaybeUninit::uninit().assume_init() };
+
     let mut send = 0;
+    let mut recv = 0;
 
     while count == 0 || send < count {
         let packet: Vec<u8> = create_packet(8, 0, 0, 1, 1, vec![0]);
@@ -77,8 +81,17 @@ fn main() {
         println!("Отправлен пакет! Данные {:?}", packet);
         send += 1;
 
+        let recv_size = socket.recv(& mut buf).unwrap();
+
+        if recv_size > 0{
+            println!("Получен ответ!");
+            recv += 1;
+        }
+
         if send != count {
             thread::sleep(dur);
         }
     }
+
+    println!("Отправлено: {send} пакетов.\nПолучено: {recv}. Потери: {}%", (send - recv));
 }
