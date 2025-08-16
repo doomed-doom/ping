@@ -69,21 +69,26 @@ fn create_packet(
     packet.to_bytes()
 }
 
+fn connect(ip_addr: Ipv4Addr, socket: &Socket) -> std::io::Result<()> {
+    let connect_addr = SocketAddr::new(IpAddr::from(ip_addr), 0);
+
+    socket.connect(&connect_addr.into())?;
+    Ok(())
+}
 fn main() {
     let args = CliArgs::parse();
+
     let ip_addr: Ipv4Addr = args.ip;
     let count: usize = args.count;
     let dur: Duration = Duration::from_secs_f64(args.duration.unwrap());
 
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4)).unwrap();
-    let connect_addr = SocketAddr::new(IpAddr::from(ip_addr), 0);
 
-    socket.connect(&connect_addr.into()).unwrap();
+    connect(ip_addr.clone(), &socket).unwrap();
 
     let mut buf: [MaybeUninit<u8>; 1500] = unsafe { MaybeUninit::uninit().assume_init() };
 
-    let mut send = 0;
-    let mut recv = 0;
+    let (mut send, mut recv) = (0, 0);
 
     let packet_len: usize = create_packet(ICMP_ECHO_REQUEST_TYPE, 0, 0, 1, 1, vec![0]).len();
 
