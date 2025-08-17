@@ -2,8 +2,12 @@ use clap::{Parser, command, value_parser};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::thread;
+use std::{process, thread};
 use std::time::{Duration, Instant};
+use std::sync::{
+    Arc,
+    atomic::{AtomicBool, Ordering}
+};
 
 use ping::PingStats;
 
@@ -83,7 +87,6 @@ fn main() {
     let dur: Duration = Duration::from_secs_f64(args.duration.unwrap());
 
     let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4)).unwrap();
-
     connect(ip_addr.clone(), &socket).unwrap();
 
     let mut buf: [MaybeUninit<u8>; 1500] = unsafe { MaybeUninit::uninit().assume_init() };
@@ -99,9 +102,24 @@ fn main() {
 
     let mut ping_delays: Vec<Duration> = Vec::new();
 
+    let running = Arc::new(AtomicBool::new(true));
+    let r = running.clone();
+
+    ctrlc::set_handler(move || {
+        r.store(false, Ordering::SeqCst);
+        process::exit(0);
+    }).unwrap();
+
     let start = Instant::now();
     while count == 0 || send < count {
-        let packet: Vec<u8> = create_packet(8, 0, 0, 1, 1, vec![0]);
+        if send > 0 {
+            if !running.load(Ordering::SeqCst) {
+                break;
+            }
+            thread::sleep(dur);
+        }
+
+        let packet = create_packet(ICMP_ECHO_REQUEST_TYPE, 0, 0, 1, send as u16, vec![0]);
         let start_send = Instant::now();
         socket.send(&packet).unwrap();
         send += 1;
@@ -116,30 +134,18 @@ fn main() {
         }
 
         ping_delays.push(end_send - start_send);
-
-        if send != count {
-            thread::sleep(dur);
-        }
     }
     let end = Instant::now();
 
-    let avg_delay: f64 = {
-        let mut all_delay: f64 = 0.0;
-        for dur in &ping_delays {
-            all_delay += dur.as_secs_f64();
-        };
-        all_delay / ping_delays.len() as f64
-    };
-
-    let result = PingStats {
-        host: ip_addr,
-        transmitted: send,
-        received: recv,
-        loss: send - recv,
-        start: start,
-        end: end,
-        avg_delay: avg_delay,
-    };
+    let result = PingStats::new(
+        ip_addr,
+        send,
+        recv,
+        send - recv,
+        start,
+        end,
+        ping_delays,
+    );
 
     println!("{result}");
 }

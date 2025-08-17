@@ -1,16 +1,44 @@
 use std::fmt::{Display, Formatter};
 use std::net::Ipv4Addr;
-use std::time::Instant;
+use std::time::{Duration, Instant};
 
 #[allow(dead_code)]
 pub struct PingStats {
-    pub host: Ipv4Addr,
-    pub transmitted: usize,
-    pub received: usize,
-    pub loss: usize,
-    pub start: Instant,
-    pub end: Instant,
-    pub avg_delay: f64,
+    host: Ipv4Addr,
+    transmitted: usize,
+    received: usize,
+    loss: usize,
+    start: Instant,
+    end: Instant,
+    avg_delay: f64,
+}
+
+impl PingStats {
+    pub fn new(host: Ipv4Addr,
+               transmitted: usize,
+               received: usize,
+               loss: usize,
+               start: Instant,
+               end: Instant,
+               delays: Vec<Duration>) -> Self {
+        let avg_delay: f64 = {
+            let mut all_delay: f64 = 0.0;
+            for dur in &delays {
+                all_delay += dur.as_secs_f64();
+            };
+            all_delay / delays.len() as f64
+        };
+
+        PingStats {
+            host,
+            transmitted,
+            received,
+            loss,
+            start,
+            end,
+            avg_delay,
+        }
+    }
 }
 
 impl Display for PingStats {

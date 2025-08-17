@@ -6,4 +6,5 @@ description = "Реализация CLI-ping на Rust."
 
 [dependencies]
 clap = { version = "4.5.45", features = ["derive"] }
+ctrlc = "3.4.7"
 socket2 = { version = "0.6.0", features = ["all"] }
