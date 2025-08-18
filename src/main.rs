@@ -2,12 +2,12 @@ use clap::{Parser, command, value_parser};
 use socket2::{Domain, Protocol, Socket, Type};
 use std::mem::MaybeUninit;
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
-use std::{process, thread};
-use std::time::{Duration, Instant};
 use std::sync::{
-    Arc,
-    atomic::{AtomicBool, Ordering}
+    Arc, Mutex,
+    atomic::{AtomicBool, Ordering},
 };
+use std::time::{Duration, Instant};
+use std::{process, thread};
 
 use ping::PingStats;
 
@@ -91,7 +91,7 @@ fn main() {
 
     let mut buf: [MaybeUninit<u8>; 1500] = unsafe { MaybeUninit::uninit().assume_init() };
 
-    let (mut send, mut recv) = (0, 0);
+    let (send, recv) = (Arc::new(Mutex::new(0usize)), Arc::new(Mutex::new(0usize)));
 
     let packet_len: usize = create_packet(ICMP_ECHO_REQUEST_TYPE, 0, 0, 1, 1, vec![0]).len();
 
@@ -100,29 +100,48 @@ fn main() {
         ip_addr, packet_len
     );
 
-    let mut ping_delays: Vec<Duration> = Vec::new();
+    let ping_delays: Arc<Mutex<Vec<Duration>>> = Arc::new(Mutex::new(Vec::new()));
+    let ping_delays_clone = Arc::clone(&ping_delays);
 
     let running = Arc::new(AtomicBool::new(true));
     let r = running.clone();
 
+    let stats = Arc::new(Mutex::new(PingStats::new(
+        ip_addr,
+        *send.lock().unwrap(),
+        *recv.lock().unwrap(),
+        Instant::now(),
+    )));
+    let stats_clone = Arc::clone(&stats);
+
     ctrlc::set_handler(move || {
         r.store(false, Ordering::SeqCst);
-        process::exit(0);
-    }).unwrap();
+        let delays = ping_delays_clone.lock().unwrap();
 
-    let start = Instant::now();
-    while count == 0 || send < count {
-        if send > 0 {
+        let stats = {
+            let mut stats_copy = stats_clone.lock().unwrap().clone();
+            stats_copy.finish(Instant::now(), &*delays);
+            stats_copy
+        };
+        stats_clone.lock().unwrap().finish(Instant::now(), &*delays);
+        println!("{}", stats);
+
+        process::exit(0);
+    })
+    .unwrap();
+
+    while count == 0 || *send.lock().unwrap() < count {
+        if *send.lock().unwrap() > 0 {
             if !running.load(Ordering::SeqCst) {
                 break;
             }
             thread::sleep(dur);
         }
 
-        let packet = create_packet(ICMP_ECHO_REQUEST_TYPE, 0, 0, 1, send as u16, vec![0]);
+        let packet = create_packet(ICMP_ECHO_REQUEST_TYPE, 0, 0, 1, *send.lock().unwrap() as u16, vec![0]);
         let start_send = Instant::now();
         socket.send(&packet).unwrap();
-        send += 1;
+        *send.lock().unwrap() += 1;
 
         let len = socket.recv(&mut buf).unwrap();
         let bytes: &[u8] = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, len) };
@@ -130,22 +149,13 @@ fn main() {
         let end_send = Instant::now();
         if len > 0 && (bytes[1] == ICMP_ECHO_ANSWER_TYPE) {
             println!("{} байт от {}", len, ip_addr);
-            recv += 1;
+            *recv.lock().unwrap() += 1;
         }
 
-        ping_delays.push(end_send - start_send);
+        ping_delays.lock().unwrap().push(end_send - start_send);
     }
-    let end = Instant::now();
 
-    let result = PingStats::new(
-        ip_addr,
-        send,
-        recv,
-        send - recv,
-        start,
-        end,
-        ping_delays,
-    );
+    stats.lock().unwrap().finish(Instant::now(), &ping_delays.lock().unwrap());
 
-    println!("{result}");
+    println!("{}", stats.lock().unwrap());
 }

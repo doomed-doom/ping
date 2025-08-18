@@ -2,42 +2,40 @@ use std::fmt::{Display, Formatter};
 use std::net::Ipv4Addr;
 use std::time::{Duration, Instant};
 
-#[allow(dead_code)]
+#[derive(Clone)]
 pub struct PingStats {
     host: Ipv4Addr,
     transmitted: usize,
     received: usize,
-    loss: usize,
     start: Instant,
-    end: Instant,
-    avg_delay: f64,
+    end: Option<Instant>,
+    avg_delay: Option<f64>,
 }
 
 impl PingStats {
-    pub fn new(host: Ipv4Addr,
-               transmitted: usize,
-               received: usize,
-               loss: usize,
-               start: Instant,
-               end: Instant,
-               delays: Vec<Duration>) -> Self {
-        let avg_delay: f64 = {
-            let mut all_delay: f64 = 0.0;
-            for dur in &delays {
-                all_delay += dur.as_secs_f64();
-            };
-            all_delay / delays.len() as f64
-        };
-
+    pub fn new(host: Ipv4Addr, transmitted: usize, received: usize, start: Instant) -> Self {
         PingStats {
             host,
             transmitted,
             received,
-            loss,
             start,
-            end,
-            avg_delay,
+            end: None,
+            avg_delay: None,
         }
+    }
+
+    pub fn finish(&mut self, end: Instant, delays: &Vec<Duration>) -> () {
+        let avg_delay: f64 = if delays.is_empty() {
+            0.0
+        } else {
+            delays
+                .iter()
+                .map(Duration::as_secs_f64)
+                .sum::<f64>() / delays.len() as f64
+        };
+
+        self.end = Some(end);
+        self.avg_delay = Some(avg_delay);
     }
 }
 
@@ -49,9 +47,18 @@ impl Display for PingStats {
             self.host,
             self.transmitted,
             self.received,
-            self.loss,
-            (self.end - self.start).as_secs_f64(),
-            self.avg_delay
+            self.transmitted - self.received,
+            (self.end.unwrap() - self.start).as_secs_f64(),
+            self.avg_delay.unwrap(),
         )
     }
 }
+
+// struct PingResult {
+//     host: Ipv4Addr,
+//     transmitted: usize,
+//     received: usize,
+//     loss: usize,
+//     end: Instant,
+//     avg_delay: f64,
+// }
