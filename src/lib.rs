@@ -5,36 +5,41 @@ use std::time::{Duration, Instant};
 #[derive(Clone)]
 pub struct PingStats {
     host: Ipv4Addr,
-    transmitted: usize,
-    received: usize,
     start: Instant,
+    transmitted: Option<usize>,
+    received: Option<usize>,
     end: Option<Instant>,
     avg_delay: Option<f64>,
 }
 
 impl PingStats {
-    pub fn new(host: Ipv4Addr, transmitted: usize, received: usize, start: Instant) -> Self {
+    pub fn new(host: Ipv4Addr, start: Instant) -> Self {
         PingStats {
             host,
-            transmitted,
-            received,
             start,
+            transmitted: None,
+            received: None,
             end: None,
             avg_delay: None,
         }
     }
 
-    pub fn finish(&mut self, end: Instant, delays: &Vec<Duration>) -> () {
+    pub fn finish(
+        &mut self,
+        end: Instant,
+        transmitted: &usize,
+        received: &usize,
+        delays: &Vec<Duration>,
+    ) -> () {
         let avg_delay: f64 = if delays.is_empty() {
             0.0
         } else {
-            delays
-                .iter()
-                .map(Duration::as_secs_f64)
-                .sum::<f64>() / delays.len() as f64
+            delays.iter().map(Duration::as_secs_f64).sum::<f64>() / delays.len() as f64
         };
 
         self.end = Some(end);
+        self.transmitted = Some(*transmitted);
+        self.received = Some(*received);
         self.avg_delay = Some(avg_delay);
     }
 }
@@ -45,20 +50,11 @@ impl Display for PingStats {
             f,
             "\n--- Статистика пинга {} ---\nОтправлено: {} пакетов.\nПолучено: {}, потери: {}%, общее время: {:.4}\nСредняя задержка (rtt): {:.4}",
             self.host,
-            self.transmitted,
-            self.received,
-            self.transmitted - self.received,
+            self.transmitted.unwrap(),
+            self.received.unwrap(),
+            self.transmitted.unwrap() - self.received.unwrap(),
             (self.end.unwrap() - self.start).as_secs_f64(),
             self.avg_delay.unwrap(),
         )
     }
 }
-
-// struct PingResult {
-//     host: Ipv4Addr,
-//     transmitted: usize,
-//     received: usize,
-//     loss: usize,
-//     end: Instant,
-//     avg_delay: f64,
-// }
