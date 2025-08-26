@@ -158,7 +158,7 @@ fn main() {
 
         let end_send = Instant::now();
         if len > 0 && bytes[1] == ICMP_ECHO_ANSWER_TYPE {
-            println!("{} байт от {}", len, ip_addr);
+            println!("{} байт от {}: icmp_seq={} time={} ms", len, ip_addr, sent.load(Ordering::SeqCst), (end_send.clone() - start_send.clone()).as_millis());
             recv.fetch_add(1, Ordering::SeqCst);
         }
 
