@@ -22,8 +22,7 @@ fn main() {
 
     let mut buf: [MaybeUninit<u8>; 1500] = unsafe { MaybeUninit::uninit().assume_init() };
 
-    let sent = Arc::new(AtomicUsize::new(0));
-    let recv = Arc::new(AtomicUsize::new(0));
+    let (sent, recv) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
 
     let packet_len: usize =
         IcmpPacket::new(ICMP_ECHO_REQUEST_TYPE, 0, 0, 1, 1, vec![0]).packet_len();
@@ -102,8 +101,7 @@ fn main() {
         ping_delays.lock().unwrap().push(end_send - start_send);
     }
 
-    let sent_val = sent.load(Ordering::SeqCst);
-    let recv_val = recv.load(Ordering::SeqCst);
+    let (sent_val, recv_val) = (sent.load(Ordering::SeqCst), recv.load(Ordering::SeqCst));
     let delays = ping_delays.lock().unwrap().clone();
 
     let mut stats_copy = stats.lock().unwrap().clone();
