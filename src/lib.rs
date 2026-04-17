@@ -1,6 +1,54 @@
 use std::fmt::{Display, Formatter};
-use std::net::Ipv4Addr;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
+
+use socket2::Socket;
+
+pub struct IcmpPacket {
+    icmp_type: u8,
+    code: u8,
+    checksum: u16,
+    id: u16,
+    seq_num: u16,
+    payload: Vec<u8>,
+}
+
+impl IcmpPacket {
+    pub fn new(
+        packet_type: u8,
+        packet_code: u8,
+        packet_checksum: u16,
+        packet_id: u16,
+        packet_seq_num: u16,
+        payload: Vec<u8>,
+    ) -> Self {
+        IcmpPacket {
+            icmp_type: packet_type,
+            code: packet_code,
+            checksum: packet_checksum,
+            id: packet_id,
+            seq_num: packet_seq_num,
+            payload,
+        }
+    }
+    
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(8 + self.payload.len());
+
+        bytes.push(self.icmp_type);
+        bytes.push(self.code);
+        bytes.extend_from_slice(&self.checksum.to_be_bytes());
+        bytes.extend_from_slice(&self.id.to_be_bytes());
+        bytes.extend_from_slice(&self.seq_num.to_be_bytes());
+        bytes.extend_from_slice(&self.payload);
+
+        bytes
+    }
+
+    pub fn packet_len(&self) -> usize {
+        self.to_bytes().len()
+    }
+}
 
 #[derive(Clone)]
 pub struct PingStats {
@@ -58,3 +106,13 @@ impl Display for PingStats {
         )
     }
 }
+
+pub fn connect(ip_addr: Ipv4Addr, socket: &Socket) -> std::io::Result<()> {
+    let connect_addr = SocketAddr::new(IpAddr::from(ip_addr), 0);
+
+    socket.connect(&connect_addr.into())?;
+    Ok(())
+}
+
+pub mod consts;
+pub mod cli;
