@@ -12,27 +12,27 @@ pub struct CliArgs {
     count: usize,
     /// Задержка (в сек.)
     #[arg(short, long, default_value = "1")]
-    duration: f64,
+    delay: f64,
 }
 
 impl CliArgs {
     pub fn parse_args() -> Self {
         CliArgs::parse()
     }
-    
+
     pub fn ip(&self) -> Ipv4Addr {
         self.ip
     }
-    
+
     pub fn count(&self) -> usize {
         self.count
     }
-    
-    pub fn duration(&self) -> Duration {
-        Duration::from_secs_f64(self.duration)
+
+    pub fn delay(&self) -> Duration {
+        Duration::from_secs_f64(self.delay)
     }
 
     pub fn get_all_args(&self) -> (Ipv4Addr, usize, Duration) {
-        (self.ip(), self.count(), self.duration())
+        (self.ip(), self.count(), self.delay())
     }
 }

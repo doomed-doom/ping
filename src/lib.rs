@@ -1,8 +1,11 @@
+use socket2::Socket;
 use std::fmt::{Display, Formatter};
 use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 use std::time::{Duration, Instant};
 
-use socket2::Socket;
+pub mod cli;
+pub mod consts;
+pub mod sockets;
 
 pub struct IcmpPacket {
     icmp_type: u8,
@@ -31,7 +34,7 @@ impl IcmpPacket {
             payload,
         }
     }
-    
+
     pub fn to_bytes(&self) -> Vec<u8> {
         let mut bytes = Vec::with_capacity(8 + self.payload.len());
 
@@ -77,8 +80,8 @@ impl PingStats {
         end: Instant,
         transmitted: &usize,
         received: &usize,
-        delays: &Vec<Duration>,
-    ) -> () {
+        delays: &[Duration],
+    ) {
         let avg_delay: f64 = if delays.is_empty() {
             0.0
         } else {
@@ -113,6 +116,3 @@ pub fn connect(ip_addr: Ipv4Addr, socket: &Socket) -> std::io::Result<()> {
     socket.connect(&connect_addr.into())?;
     Ok(())
 }
-
-pub mod consts;
-pub mod cli;

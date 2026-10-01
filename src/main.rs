@@ -6,19 +6,19 @@ use std::sync::{
     atomic::{AtomicBool, AtomicUsize, Ordering},
 };
 use std::time::{Duration, Instant};
-use std::{process, thread};
+use std::{io, process, thread};
 
 use ping::{
     PingStats,
     consts::{ICMP_ECHO_ANSWER_TYPE, ICMP_ECHO_REQUEST_TYPE},
 };
 
-fn main() {
+fn main() -> io::Result<()> {
     let cli_args = ping::cli::CliArgs::parse_args();
-    let (ip_addr, count, dur) = cli_args.get_all_args();
+    let (ip_addr, count, delay) = cli_args.get_all_args();
 
-    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4)).unwrap();
-    connect(ip_addr.clone(), &socket).unwrap();
+    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4))?;
+    connect(ip_addr, &socket)?;
 
     let mut buf: [MaybeUninit<u8>; 1500] = unsafe { MaybeUninit::uninit().assume_init() };
 
@@ -33,17 +33,15 @@ fn main() {
     );
 
     let ping_delays: Arc<Mutex<Vec<Duration>>> = Arc::new(Mutex::new(Vec::new()));
-
-    let running = Arc::new(AtomicBool::new(true));
-    let r = Arc::clone(&running);
-
     let stats = Arc::new(Mutex::new(PingStats::new(ip_addr, Instant::now())));
 
+    let running = Arc::new(AtomicBool::new(true));
     {
         let sent = Arc::clone(&sent);
         let recv = Arc::clone(&recv);
         let ping_delays = Arc::clone(&ping_delays);
         let stats = Arc::clone(&stats);
+        let r = Arc::clone(&running);
 
         ctrlc::set_handler(move || {
             r.store(false, Ordering::SeqCst);
@@ -62,50 +60,51 @@ fn main() {
         .unwrap();
     }
 
-    while count == 0 || sent.load(Ordering::SeqCst) < count {
-        if sent.load(Ordering::SeqCst) > 0 {
+    loop {
+        let s = sent.load(Ordering::SeqCst);
+
+        if count != 0 && s < count {
+            break;
+        }
+
+        if s > 0 {
             if !running.load(Ordering::SeqCst) {
                 break;
             }
-            thread::sleep(dur);
+            thread::sleep(delay);
         }
 
-        let packet = IcmpPacket::new(
-            ICMP_ECHO_REQUEST_TYPE,
-            0,
-            0,
-            1,
-            sent.load(Ordering::SeqCst) as u16,
-            vec![0],
-        );
-
+        let packet = IcmpPacket::new(ICMP_ECHO_REQUEST_TYPE, 0, 0, 1, s as u16, vec![0]);
         let start_send = Instant::now();
-        socket.send(&packet.to_bytes()).unwrap();
+
+        socket.send(&packet.to_bytes())?;
         sent.fetch_add(1, Ordering::SeqCst);
 
-        let len = socket.recv(&mut buf).unwrap();
+        let len = socket.recv(&mut buf)?;
         let bytes: &[u8] = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, len) };
 
-        let end_send = Instant::now();
+        let end_send = start_send.elapsed();
+
         if len > 0 && bytes[1] == ICMP_ECHO_ANSWER_TYPE {
             println!(
-                "{} байт от {}: icmp_seq={} time={} ms",
+                "{} байт от {}: icmp_seq={} time={:?}",
                 len,
                 ip_addr,
                 sent.load(Ordering::SeqCst),
-                (end_send.clone() - start_send.clone()).as_millis()
+                end_send
             );
             recv.fetch_add(1, Ordering::SeqCst);
         }
 
-        ping_delays.lock().unwrap().push(end_send - start_send);
+        ping_delays.lock().unwrap().push(end_send);
     }
 
     let (sent_val, recv_val) = (sent.load(Ordering::SeqCst), recv.load(Ordering::SeqCst));
     let delays = ping_delays.lock().unwrap().clone();
 
-    let mut stats_copy = stats.lock().unwrap().clone();
-    stats_copy.finish(Instant::now(), &sent_val, &recv_val, &delays);
+    let mut stats = stats.lock().unwrap();
+    stats.finish(Instant::now(), &sent_val, &recv_val, &delays);
 
-    println!("{}", stats_copy);
+    println!("{}", stats);
+    Ok(())
 }
