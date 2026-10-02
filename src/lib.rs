@@ -5,7 +5,6 @@ use std::time::{Duration, Instant};
 
 pub mod cli;
 pub mod consts;
-pub mod sockets;
 
 pub struct IcmpPacket {
     icmp_type: u8,
