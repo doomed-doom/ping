@@ -1,110 +1,64 @@
-use ping::{IcmpPacket, connect};
-use socket2::{Domain, Protocol, Socket, Type};
-use std::mem::MaybeUninit;
-use std::sync::{
-    Arc, Mutex,
-    atomic::{AtomicBool, AtomicUsize, Ordering},
-};
-use std::time::{Duration, Instant};
-use std::{io, process, thread};
+use std::net::{SocketAddr, TcpStream};
+use std::thread::sleep;
+use std::time::Duration;
+use std::{io, thread};
 
-use ping::{
-    PingStats,
-    consts::{ICMP_ECHO_ANSWER_TYPE, ICMP_ECHO_REQUEST_TYPE},
-};
+use mio::{Events, Interest, Poll, Token, net::TcpListener};
 
-fn main() -> io::Result<()> {
-    let cli_args = ping::cli::CliArgs::parse_args();
-    let (ip_addr, count, delay) = cli_args.get_all_args();
+const SERVER: Token = Token(0);
 
-    let socket = Socket::new(Domain::IPV4, Type::DGRAM, Some(Protocol::ICMPV4))?;
-    connect(ip_addr, &socket)?;
+fn main() -> Result<(), Box<dyn std::error::Error>> {
+    let mut events = Events::with_capacity(1024);
+    let mut poll = Poll::new()?;
 
-    let mut buf: [MaybeUninit<u8>; 1500] = unsafe { MaybeUninit::uninit().assume_init() };
+    let addr: SocketAddr = "127.0.0.1:5252".parse()?;
+    let mut listener = TcpListener::bind(addr)?;
 
-    let (sent, recv) = (Arc::new(AtomicUsize::new(0)), Arc::new(AtomicUsize::new(0)));
+    poll.registry()
+        .register(&mut listener, SERVER, Interest::READABLE)?;
 
-    let packet_len: usize =
-        IcmpPacket::new(ICMP_ECHO_REQUEST_TYPE, 0, 0, 1, 1, vec![0]).packet_len();
+    let mut threads = vec![];
 
-    println!(
-        "Начинаем пинг {} - {} байт данных пакет.",
-        ip_addr, packet_len
-    );
-
-    let ping_delays: Arc<Mutex<Vec<Duration>>> = Arc::new(Mutex::new(Vec::new()));
-    let stats = Arc::new(Mutex::new(PingStats::new(ip_addr, Instant::now())));
-
-    let running = Arc::new(AtomicBool::new(true));
-    {
-        let sent = Arc::clone(&sent);
-        let recv = Arc::clone(&recv);
-        let ping_delays = Arc::clone(&ping_delays);
-        let stats = Arc::clone(&stats);
-        let r = Arc::clone(&running);
-
-        ctrlc::set_handler(move || {
-            r.store(false, Ordering::SeqCst);
-
-            let sent_val = sent.load(Ordering::SeqCst);
-            let recv_val = recv.load(Ordering::SeqCst);
-            let delays = ping_delays.lock().unwrap().clone();
-
-            let mut stats_copy = stats.lock().unwrap().clone();
-            stats_copy.finish(Instant::now(), &sent_val, &recv_val, &delays);
-
-            println!("{}", stats_copy);
-
-            process::exit(0);
-        })
-        .unwrap();
+    for _ in 0..10 {
+        let handle = thread::spawn(|| {
+            let addr: SocketAddr = "127.0.0.1:5252".parse().unwrap();
+            TcpStream::connect(addr).unwrap();
+        });
+        threads.push(handle);
     }
+
+    threads.into_iter().for_each(|handle| {
+        handle.join().unwrap();
+    });
 
     loop {
-        let s = sent.load(Ordering::SeqCst);
+        poll.poll(&mut events, Some(Duration::from_millis(100)))?;
 
-        if count != 0 && s < count {
-            break;
-        }
-
-        if s > 0 {
-            if !running.load(Ordering::SeqCst) {
-                break;
+        for event in events.iter() {
+            // We can use the token we previously provided to `register` to
+            // determine for which type the event is.
+            match event.token() {
+                SERVER => loop {
+                    // One or more connections are ready, so we'll attempt to
+                    // accept them (in a loop).
+                    match listener.accept() {
+                        Ok((_connection, address)) => {
+                            println!("Got a connection from: {}", address);
+                            sleep(Duration::from_secs(1));
+                        }
+                        // A "would block error" is returned if the operation
+                        // is not ready, so we'll stop trying to accept
+                        // connections.
+                        Err(ref err) if would_block(err) => break,
+                        Err(err) => return Err(Box::new(err)),
+                    }
+                },
+                _ => println!("Wrong token!"),
             }
-            thread::sleep(delay);
         }
-
-        let packet = IcmpPacket::new(ICMP_ECHO_REQUEST_TYPE, 0, 0, 1, s as u16, vec![0]);
-        let start_send = Instant::now();
-
-        socket.send(&packet.to_bytes())?;
-        sent.fetch_add(1, Ordering::SeqCst);
-
-        let len = socket.recv(&mut buf)?;
-        let bytes: &[u8] = unsafe { std::slice::from_raw_parts(buf.as_ptr() as *const u8, len) };
-
-        let end_send = start_send.elapsed();
-
-        if len > 0 && bytes[1] == ICMP_ECHO_ANSWER_TYPE {
-            println!(
-                "{} байт от {}: icmp_seq={} time={:?}",
-                len,
-                ip_addr,
-                sent.load(Ordering::SeqCst),
-                end_send
-            );
-            recv.fetch_add(1, Ordering::SeqCst);
-        }
-
-        ping_delays.lock().unwrap().push(end_send);
     }
+}
 
-    let (sent_val, recv_val) = (sent.load(Ordering::SeqCst), recv.load(Ordering::SeqCst));
-    let delays = ping_delays.lock().unwrap().clone();
-
-    let mut stats = stats.lock().unwrap();
-    stats.finish(Instant::now(), &sent_val, &recv_val, &delays);
-
-    println!("{}", stats);
-    Ok(())
+fn would_block(err: &io::Error) -> bool {
+    err.kind() == io::ErrorKind::WouldBlock
 }
