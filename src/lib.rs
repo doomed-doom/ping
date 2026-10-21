@@ -5,6 +5,8 @@ use mio::unix::SourceFd;
 use mio::{Interest, Registry, Token, event};
 use socket2::{Domain, Protocol, Socket, Type};
 
+pub mod consts;
+
 pub struct IoSource<T: AsRawFd> {
     pub inner: T,
 }
@@ -51,7 +53,10 @@ impl IcmpAsyncSocket {
     }
 
     pub fn connect(&self, addr: SocketAddr) -> io::Result<()> {
-        self.socket().connect(&addr.into())
+        match self.socket().connect(&addr.into()) {
+            Err(err) if err.raw_os_error() != Some(consts::LIBC_EINPROGRESS) => Err(err),
+            _ => Ok(()),
+        }
     }
 
     pub fn send(&self, buf: &[u8]) -> io::Result<usize> {
@@ -83,6 +88,52 @@ impl event::Source for IcmpAsyncSocket {
     }
 }
 
+pub struct IcmpPacket {
+    icmp_type: u8,
+    code: u8,
+    checksum: u16,
+    id: u16,
+    seq_num: u16,
+    payload: Vec<u8>,
+}
+
+impl IcmpPacket {
+    pub fn new(
+        packet_type: u8,
+        packet_code: u8,
+        packet_checksum: u16,
+        packet_id: u16,
+        packet_seq_num: u16,
+        payload: Vec<u8>,
+    ) -> Self {
+        IcmpPacket {
+            icmp_type: packet_type,
+            code: packet_code,
+            checksum: packet_checksum,
+            id: packet_id,
+            seq_num: packet_seq_num,
+            payload,
+        }
+    }
+
+    pub fn to_bytes(&self) -> Vec<u8> {
+        let mut bytes = Vec::with_capacity(8 + self.payload.len());
+
+        bytes.push(self.icmp_type);
+        bytes.push(self.code);
+        bytes.extend_from_slice(&self.checksum.to_be_bytes());
+        bytes.extend_from_slice(&self.id.to_be_bytes());
+        bytes.extend_from_slice(&self.seq_num.to_be_bytes());
+        bytes.extend_from_slice(&self.payload);
+
+        bytes
+    }
+
+    pub fn packet_len(&self) -> usize {
+        self.to_bytes().len()
+    }
+}
+
 // use socket2::Socket;
 // use std::fmt::{Display, Formatter};
 // use std::net::{IpAddr, Ipv4Addr, SocketAddr};
@@ -91,51 +142,6 @@ impl event::Source for IcmpAsyncSocket {
 // pub mod cli;
 // pub mod consts;
 //
-// pub struct IcmpPacket {
-//     icmp_type: u8,
-//     code: u8,
-//     checksum: u16,
-//     id: u16,
-//     seq_num: u16,
-//     payload: Vec<u8>,
-// }
-//
-// impl IcmpPacket {
-//     pub fn new(
-//         packet_type: u8,
-//         packet_code: u8,
-//         packet_checksum: u16,
-//         packet_id: u16,
-//         packet_seq_num: u16,
-//         payload: Vec<u8>,
-//     ) -> Self {
-//         IcmpPacket {
-//             icmp_type: packet_type,
-//             code: packet_code,
-//             checksum: packet_checksum,
-//             id: packet_id,
-//             seq_num: packet_seq_num,
-//             payload,
-//         }
-//     }
-//
-//     pub fn to_bytes(&self) -> Vec<u8> {
-//         let mut bytes = Vec::with_capacity(8 + self.payload.len());
-//
-//         bytes.push(self.icmp_type);
-//         bytes.push(self.code);
-//         bytes.extend_from_slice(&self.checksum.to_be_bytes());
-//         bytes.extend_from_slice(&self.id.to_be_bytes());
-//         bytes.extend_from_slice(&self.seq_num.to_be_bytes());
-//         bytes.extend_from_slice(&self.payload);
-//
-//         bytes
-//     }
-//
-//     pub fn packet_len(&self) -> usize {
-//         self.to_bytes().len()
-//     }
-// }
 //
 // #[derive(Clone)]
 // pub struct PingStats {
